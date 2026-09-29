@@ -281,9 +281,23 @@
       option.value = n.label;
       searchList.appendChild(option);
     });
-    el("brand-search").addEventListener("input", function () {
+    var search = el("brand-search");
+    // "input" catches picking a suggestion; "change" catches typing then
+    // leaving the field, where a partial or English query still resolves.
+    search.addEventListener("input", function () {
       var hit = labelIndex[this.value.trim()];
       if (hit) { applyNode(hit); }
+    });
+    search.addEventListener("change", function () {
+      if (!this.value.trim()) { return; }
+      var hit = findNode(this.value);
+      if (hit) {
+        applyNode(hit);
+        this.value = hit.label;   // show what actually matched
+        el("error").textContent = "";
+      } else {
+        el("error").textContent = "خودرویی با این نام پیدا نشد؛ از فهرست‌های زیر انتخاب کنید.";
+      }
     });
 
     // --- day ranges
@@ -341,9 +355,45 @@
   }
 
   function add(node) {
+    // Divar mixes digit systems inside one title ("پژو 206 تیپ ۲"), so both
+    // the index and the query are folded before comparing.
+    node.search = fold(node.label) + " " + fold(node.key);
     nodeIndex.push(node);
     labelIndex[node.label] = node;
     keyIndex[node.key] = node;
+  }
+
+  /** Fold a string so Persian/Latin digits and letter variants compare equal. */
+  function fold(text) {
+    return toEnDigits(text == null ? "" : text)
+      .replace(/ي|ى/g, "ی")
+      .replace(/ك/g, "ک")
+      .replace(/[‌‎‏]/g, " ")
+      .toLowerCase()
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  /** Resolve free text to a node: exact label, then folded, then substring. */
+  function findNode(query) {
+    var raw = (query || "").trim();
+    if (!raw) { return null; }
+    if (labelIndex[raw]) { return labelIndex[raw]; }
+
+    var needle = fold(raw);
+    if (!needle) { return null; }
+
+    var exact = null;
+    var partial = null;
+    for (var i = 0; i < nodeIndex.length; i++) {
+      var node = nodeIndex[i];
+      if (fold(node.label) === needle || fold(node.key) === needle) {
+        exact = node;
+        break;
+      }
+      if (!partial && node.search.indexOf(needle) >= 0) { partial = node; }
+    }
+    return exact || partial;
   }
 
   function childrenOf(brandKey, modelKey) {
