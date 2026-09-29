@@ -62,6 +62,15 @@
   }
   #save:disabled { opacity: .5; }
   .error { color: var(--danger); font-size: 13px; margin-top: 6px; min-height: 18px; }
+  .selection {
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: var(--card);
+    border: 1px dashed var(--border);
+    font-size: 13px;
+    color: var(--hint);
+  }
+  .selection b { color: var(--fg); font-weight: 700; }
   .loading { text-align: center; padding: 48px 0; color: var(--hint); }
   datalist { display: none; }
 </style>
@@ -86,14 +95,30 @@
   </div>
 
   <div class="field">
+    <label class="title" for="brand-search">🔎 جستجوی خودرو</label>
+    <input id="brand-search" list="brand-list" autocomplete="off"
+           placeholder="مثلاً دنا پلاس اتوماتیک یا Dena">
+    <datalist id="brand-list"></datalist>
+    <div class="hint">فارسی یا انگلیسی بنویسید، یا از فهرست‌های زیر انتخاب کنید</div>
+  </div>
+
+  <div class="field">
     <label class="title" for="brand">برند</label>
     <select id="brand"></select>
-    <div class="hint">برای «همهٔ برندها» خالی بگذارید</div>
   </div>
 
   <div class="field" id="model-field" hidden>
-    <label class="title" for="model">مدل (اختیاری)</label>
+    <label class="title" for="model">مدل</label>
     <select id="model"></select>
+  </div>
+
+  <div class="field" id="trim-field" hidden>
+    <label class="title" for="trim">تیپ</label>
+    <select id="trim"></select>
+  </div>
+
+  <div class="field">
+    <div class="selection" id="selection">همهٔ برندها</div>
   </div>
 
   <div class="field">
@@ -227,7 +252,9 @@
       list.appendChild(option);
     });
 
-    // --- brands
+    // --- brand / model / trim, mirroring Divar's own three-level taxonomy
+    buildIndex();
+
     var brandSelect = el("brand");
     brandSelect.innerHTML = '<option value="">همهٔ برندها</option>';
     catalog.brands.forEach(function (b) {
@@ -236,7 +263,28 @@
       option.textContent = b.title;
       brandSelect.appendChild(option);
     });
-    brandSelect.addEventListener("change", function () { renderModels(brandSelect.value); });
+    brandSelect.addEventListener("change", function () {
+      renderModels(brandSelect.value);
+      renderTrims("");
+      describeSelection();
+    });
+    el("model").addEventListener("change", function () {
+      renderTrims(el("model").value);
+      describeSelection();
+    });
+    el("trim").addEventListener("change", describeSelection);
+
+    // Quick search over every node in the tree.
+    var searchList = el("brand-list");
+    nodeIndex.forEach(function (n) {
+      var option = document.createElement("option");
+      option.value = n.label;
+      searchList.appendChild(option);
+    });
+    el("brand-search").addEventListener("input", function () {
+      var hit = labelIndex[this.value.trim()];
+      if (hit) { applyNode(hit); }
+    });
 
     // --- day ranges
     var daySelect = el("days");
@@ -261,25 +309,110 @@
     showPriceHint();
   }
 
-  function renderModels(brandKey, preselect) {
-    var field = el("model-field");
-    var select = el("model");
-    var brand = catalog.brands.filter(function (b) { return b.key === brandKey; })[0];
+  // --- brand taxonomy ------------------------------------------------------
+  // Divar's tree is brand -> model -> trim. Sending the deepest key the user
+  // picked is what makes the filter precise: "Dena" matches ~2800 listings in
+  // Tehran, "Dena plus turbo" matches ~22.
 
-    if (!brand || !brand.children || !brand.children.length) {
+  var nodeIndex = [];        // every node, flattened, with its full path label
+  var labelIndex = {};       // label -> node, for the search box
+  var keyIndex = {};         // key   -> node, for prefilling a saved filter
+
+  function buildIndex() {
+    nodeIndex = [];
+    labelIndex = {};
+    keyIndex = {};
+    catalog.brands.forEach(function (b) {
+      add({ key: b.key, title: b.title, label: b.title, brand: b.key, model: "", trim: "" });
+      (b.children || []).forEach(function (m) {
+        add({
+          key: m.key, title: m.title, label: b.title + " › " + m.title,
+          brand: b.key, model: m.key, trim: ""
+        });
+        (m.children || []).forEach(function (s) {
+          add({
+            key: s.key, title: s.title,
+            label: b.title + " › " + m.title + " › " + s.title,
+            brand: b.key, model: m.key, trim: s.key
+          });
+        });
+      });
+    });
+  }
+
+  function add(node) {
+    nodeIndex.push(node);
+    labelIndex[node.label] = node;
+    keyIndex[node.key] = node;
+  }
+
+  function childrenOf(brandKey, modelKey) {
+    var brand = catalog.brands.filter(function (b) { return b.key === brandKey; })[0];
+    if (!brand) { return null; }
+    if (!modelKey) { return brand.children || []; }
+    var model = (brand.children || []).filter(function (m) { return m.key === modelKey; })[0];
+    return model ? (model.children || []) : [];
+  }
+
+  function fillSelect(select, field, options, allLabel, preselect) {
+    if (!options || !options.length) {
       field.hidden = true;
       select.innerHTML = "";
       return;
     }
     field.hidden = false;
-    select.innerHTML = '<option value="">همهٔ مدل‌های ' + brand.title + "</option>";
-    brand.children.forEach(function (m) {
+    select.innerHTML = '<option value="">' + allLabel + "</option>";
+    options.forEach(function (o) {
       var option = document.createElement("option");
-      option.value = m.key;
-      option.textContent = m.title;
+      option.value = o.key;
+      option.textContent = o.title;
       select.appendChild(option);
     });
-    if (preselect) { select.value = preselect; }
+    select.value = preselect || "";
+  }
+
+  function renderModels(brandKey, preselect) {
+    var brand = catalog.brands.filter(function (b) { return b.key === brandKey; })[0];
+    fillSelect(
+      el("model"), el("model-field"), childrenOf(brandKey, ""),
+      brand ? "همهٔ مدل‌های " + brand.title : "همه", preselect
+    );
+  }
+
+  function renderTrims(modelKey, preselect) {
+    // Without a model there is no trim level to show -- an empty modelKey
+    // would otherwise fall back to the brand's models.
+    var node = keyIndex[modelKey];
+    fillSelect(
+      el("trim"), el("trim-field"),
+      modelKey ? childrenOf(el("brand").value, modelKey) : [],
+      node ? "همهٔ تیپ‌های " + node.title : "همه", preselect
+    );
+  }
+
+  /** The deepest key the user actually chose -- that is what Divar filters on. */
+  function selectedKey() {
+    if (!el("trim-field").hidden && el("trim").value) { return el("trim").value; }
+    if (!el("model-field").hidden && el("model").value) { return el("model").value; }
+    return el("brand").value || "";
+  }
+
+  function applyNode(node) {
+    el("brand").value = node.brand;
+    renderModels(node.brand, node.model);
+    renderTrims(node.model, node.trim);
+    describeSelection();
+  }
+
+  function describeSelection() {
+    var key = selectedKey();
+    var box = el("selection");
+    if (!key) {
+      box.textContent = "همهٔ برندها";
+      return;
+    }
+    var node = keyIndex[key];
+    box.innerHTML = "انتخاب شما: <b>" + (node ? node.label : key) + "</b>";
   }
 
   function prefill() {
@@ -298,23 +431,13 @@
       if (city) { el("city").value = city.name; }
     }
 
-    // A saved "brand" may be a top-level brand or one of its models.
+    // A saved "brand" may be a brand, a model or a trim -- the index knows
+    // which, and restores all three dropdowns from it.
     var saved = params.get("brand");
-    if (saved) {
-      var top = catalog.brands.filter(function (b) { return b.key === saved; })[0];
-      if (top) {
-        el("brand").value = saved;
-        renderModels(saved);
-      } else {
-        catalog.brands.forEach(function (b) {
-          (b.children || []).forEach(function (m) {
-            if (m.key === saved) {
-              el("brand").value = b.key;
-              renderModels(b.key, saved);
-            }
-          });
-        });
-      }
+    if (saved && keyIndex[saved]) {
+      applyNode(keyIndex[saved]);
+    } else {
+      describeSelection();
     }
   }
 
@@ -352,9 +475,7 @@
       return fail("سال تولید باید بین ۱۳۰۰ تا ۱۵۰۰ شمسی باشد.");
     }
 
-    // The model is more specific than the brand, so it wins when both are set.
-    var modelField = el("model-field");
-    var brand = (!modelField.hidden && el("model").value) ? el("model").value : el("brand").value;
+    var brand = selectedKey();
 
     var payload = {
       city_id: city.id,
@@ -382,12 +503,7 @@
   }
 
   function brandTitle(key) {
-    var found = "";
-    catalog.brands.forEach(function (b) {
-      if (b.key === key) { found = b.title; }
-      (b.children || []).forEach(function (m) { if (m.key === key) { found = m.title; } });
-    });
-    return found || key;
+    return keyIndex[key] ? keyIndex[key].title : key;
   }
 
   function splitWords(value) {
