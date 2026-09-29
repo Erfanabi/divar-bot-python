@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ساخت فیلتر خودرو</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    --bg: var(--tg-theme-bg-color, #ffffff);
+    --fg: var(--tg-theme-text-color, #1c1c1e);
+    --hint: var(--tg-theme-hint-color, #8e8e93);
+    --card: var(--tg-theme-secondary-bg-color, #f2f2f7);
+    --accent: var(--tg-theme-button-color, #2ea6ff);
+    --accent-fg: var(--tg-theme-button-text-color, #ffffff);
+    --border: rgba(128,128,128,.28);
+    --danger: #e0443e;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0;
+    padding: 12px 16px 96px;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: "Vazirmatn", "IRANSans", "Segoe UI", Tahoma, system-ui, sans-serif;
+    font-size: 15px;
+    line-height: 1.7;
+  }
+  h1 { font-size: 18px; margin: 4px 0 16px; }
+  .field { margin-bottom: 18px; }
+  label.title { display: block; font-size: 14px; margin-bottom: 6px; font-weight: 600; }
+  .hint { color: var(--hint); font-size: 12px; margin-top: 4px; }
+  input, select, textarea {
+    width: 100%;
+    padding: 11px 12px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--card);
+    color: var(--fg);
+    font: inherit;
+    font-size: 15px;
+  }
+  input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .row { display: flex; gap: 10px; }
+  .row > * { flex: 1; min-width: 0; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    padding: 8px 14px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--card);
+    cursor: pointer;
+    font-size: 14px;
+    user-select: none;
+  }
+  .chip[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+  #save {
+    position: fixed; inset-inline: 0; bottom: 0;
+    margin: 0; padding: 16px; border: 0; border-radius: 0;
+    background: var(--accent); color: var(--accent-fg);
+    font-size: 16px; font-weight: 700; cursor: pointer;
+  }
+  #save:disabled { opacity: .5; }
+  .error { color: var(--danger); font-size: 13px; margin-top: 6px; min-height: 18px; }
+  .loading { text-align: center; padding: 48px 0; color: var(--hint); }
+  datalist { display: none; }
+</style>
+</head>
+<body>
+
+<div id="app" class="loading">در حال بارگذاری…</div>
+
+<template id="form-template">
+  <h1 id="heading">➕ فیلتر جدید</h1>
+
+  <div class="field">
+    <label class="title" for="name">نام فیلتر</label>
+    <input id="name" maxlength="60" placeholder="مثلاً دنا اتومات مشهد">
+  </div>
+
+  <div class="field">
+    <label class="title" for="city">شهر *</label>
+    <input id="city" list="cities" placeholder="نام شهر را بنویسید" autocomplete="off">
+    <datalist id="cities"></datalist>
+    <div class="hint">مثلاً مشهد، تهران، اصفهان</div>
+  </div>
+
+  <div class="field">
+    <label class="title" for="brand">برند</label>
+    <select id="brand"></select>
+    <div class="hint">برای «همهٔ برندها» خالی بگذارید</div>
+  </div>
+
+  <div class="field" id="model-field" hidden>
+    <label class="title" for="model">مدل (اختیاری)</label>
+    <select id="model"></select>
+  </div>
+
+  <div class="field">
+    <label class="title">بازهٔ قیمت (تومان)</label>
+    <div class="row">
+      <input id="min_price" inputmode="numeric" placeholder="از">
+      <input id="max_price" inputmode="numeric" placeholder="تا">
+    </div>
+    <div class="hint" id="price-hint"></div>
+  </div>
+
+  <div class="field">
+    <label class="title">بازهٔ سال تولید (شمسی)</label>
+    <div class="row">
+      <input id="min_year" inputmode="numeric" placeholder="از ۱۳۹۰">
+      <input id="max_year" inputmode="numeric" placeholder="تا ۱۴۰۵">
+    </div>
+  </div>
+
+  <div class="field">
+    <label class="title" for="max_mileage">حداکثر کارکرد (کیلومتر)</label>
+    <input id="max_mileage" inputmode="numeric" placeholder="بدون محدودیت">
+  </div>
+
+  <div class="field">
+    <label class="title">گیربکس</label>
+    <div class="chips" id="gearbox"></div>
+  </div>
+
+  <div class="field">
+    <label class="title">فروشنده</label>
+    <div class="chips" id="seller"></div>
+  </div>
+
+  <div class="field">
+    <label class="title" for="include">کلمات لازم (اختیاری)</label>
+    <input id="include" placeholder="با ویرگول جدا کنید، مثلاً سانروف، آپشنال">
+    <div class="hint">حداقل یکی از این کلمات باید در آگهی باشد</div>
+  </div>
+
+  <div class="field">
+    <label class="title" for="exclude">کلمات حذفی (اختیاری)</label>
+    <input id="exclude" placeholder="مثلاً معاوضه، تصادفی">
+  </div>
+
+  <div class="field">
+    <label class="title" for="days">بازهٔ زمانی آگهی‌ها</label>
+    <select id="days"></select>
+    <div class="hint">هنگام ساخت فیلتر، آگهی‌های این بازه برایتان فرستاده می‌شود</div>
+  </div>
+
+  <div class="field">
+    <label class="title">اعلان تغییر آگهی‌ها</label>
+    <div class="chips" id="alerts"></div>
+    <div class="hint">پیام‌های قبلی در هر صورت بی‌صدا به‌روز می‌شوند</div>
+  </div>
+
+  <div class="error" id="error"></div>
+  <button id="save" type="button">✅ ذخیره فیلتر</button>
+</template>
+
+<script>
+(function () {
+  "use strict";
+
+  var tg = window.Telegram && window.Telegram.WebApp;
+  if (tg) { tg.ready(); tg.expand(); }
+
+  var params = new URLSearchParams(location.search);
+  var editingId = params.get("id");
+  var catalog = null;
+
+  var GEARBOX = [["", "همه"], ["automatic", "اتوماتیک"], ["manual", "دنده‌ای"]];
+  var SELLER  = [["", "همه"], ["personal", "شخصی"], ["business", "نمایشگاه"]];
+  var ALERTS  = [["price_drop", "فقط کاهش قیمت"], ["all", "همهٔ تغییرات"], ["none", "هیچ‌کدام"]];
+  var DAYS    = [1, 2, 3, 5, 7, 10, 14, 16, 21, 30, 45, 60];
+
+  var FA_DIGITS = "۰۱۲۳۴۵۶۷۸۹";
+
+  function toEnDigits(s) {
+    return String(s == null ? "" : s).replace(/[۰-۹٠-٩]/g, function (d) {
+      var code = d.charCodeAt(0);
+      return String(code >= 0x06f0 ? code - 0x06f0 : code - 0x0660);
+    });
+  }
+  function toFaDigits(s) {
+    return String(s).replace(/\d/g, function (d) { return FA_DIGITS[+d]; });
+  }
+  function num(value) {
+    var cleaned = toEnDigits(value).replace(/[^\d]/g, "");
+    return cleaned ? parseInt(cleaned, 10) : null;
+  }
+  function el(id) { return document.getElementById(id); }
+
+  function renderChips(container, options, selected) {
+    container.innerHTML = "";
+    options.forEach(function (opt) {
+      var chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "chip";
+      chip.textContent = opt[1];
+      chip.dataset.value = opt[0];
+      chip.setAttribute("aria-pressed", String(opt[0] === (selected || "")));
+      chip.addEventListener("click", function () {
+        Array.prototype.forEach.call(container.children, function (c) {
+          c.setAttribute("aria-pressed", "false");
+        });
+        chip.setAttribute("aria-pressed", "true");
+      });
+      container.appendChild(chip);
+    });
+  }
+  function chipValue(container) {
+    var active = container.querySelector('[aria-pressed="true"]');
+    return active ? active.dataset.value : "";
+  }
+
+  function buildForm() {
+    var app = el("app");
+    app.className = "";
+    app.innerHTML = "";
+    app.appendChild(el("form-template").content.cloneNode(true));
+
+    if (editingId) { el("heading").textContent = "✏️ ویرایش فیلتر"; }
+
+    // --- cities: a datalist keeps 1000+ entries usable on a phone
+    var list = el("cities");
+    catalog.cities.forEach(function (c) {
+      var option = document.createElement("option");
+      option.value = c.name;
+      list.appendChild(option);
+    });
+
+    // --- brands
+    var brandSelect = el("brand");
+    brandSelect.innerHTML = '<option value="">همهٔ برندها</option>';
+    catalog.brands.forEach(function (b) {
+      var option = document.createElement("option");
+      option.value = b.key;
+      option.textContent = b.title;
+      brandSelect.appendChild(option);
+    });
+    brandSelect.addEventListener("change", function () { renderModels(brandSelect.value); });
+
+    // --- day ranges
+    var daySelect = el("days");
+    DAYS.forEach(function (d) {
+      var option = document.createElement("option");
+      option.value = String(d);
+      option.textContent = toFaDigits(d) + " روز اخیر";
+      daySelect.appendChild(option);
+    });
+    daySelect.value = params.get("days") || "3";
+
+    renderChips(el("gearbox"), GEARBOX, params.get("gearbox") || "");
+    renderChips(el("seller"), SELLER, params.get("seller") || "");
+    renderChips(el("alerts"), ALERTS, params.get("alerts") || "price_drop");
+
+    prefill();
+    el("save").addEventListener("click", submit);
+
+    ["min_price", "max_price"].forEach(function (id) {
+      el(id).addEventListener("input", showPriceHint);
+    });
+    showPriceHint();
+  }
+
+  function renderModels(brandKey, preselect) {
+    var field = el("model-field");
+    var select = el("model");
+    var brand = catalog.brands.filter(function (b) { return b.key === brandKey; })[0];
+
+    if (!brand || !brand.children || !brand.children.length) {
+      field.hidden = true;
+      select.innerHTML = "";
+      return;
+    }
+    field.hidden = false;
+    select.innerHTML = '<option value="">همهٔ مدل‌های ' + brand.title + "</option>";
+    brand.children.forEach(function (m) {
+      var option = document.createElement("option");
+      option.value = m.key;
+      option.textContent = m.title;
+      select.appendChild(option);
+    });
+    if (preselect) { select.value = preselect; }
+  }
+
+  function prefill() {
+    el("name").value = params.get("name") || "";
+    el("include").value = params.get("include") || "";
+    el("exclude").value = params.get("exclude") || "";
+
+    ["min_price", "max_price", "min_year", "max_year", "max_mileage"].forEach(function (id) {
+      var v = params.get(id);
+      if (v) { el(id).value = toFaDigits(v); }
+    });
+
+    var cityId = params.get("city");
+    if (cityId) {
+      var city = catalog.cities.filter(function (c) { return String(c.id) === String(cityId); })[0];
+      if (city) { el("city").value = city.name; }
+    }
+
+    // A saved "brand" may be a top-level brand or one of its models.
+    var saved = params.get("brand");
+    if (saved) {
+      var top = catalog.brands.filter(function (b) { return b.key === saved; })[0];
+      if (top) {
+        el("brand").value = saved;
+        renderModels(saved);
+      } else {
+        catalog.brands.forEach(function (b) {
+          (b.children || []).forEach(function (m) {
+            if (m.key === saved) {
+              el("brand").value = b.key;
+              renderModels(b.key, saved);
+            }
+          });
+        });
+      }
+    }
+  }
+
+  function showPriceHint() {
+    var low = num(el("min_price").value);
+    var high = num(el("max_price").value);
+    var parts = [];
+    if (low) { parts.push("از " + human(low)); }
+    if (high) { parts.push("تا " + human(high)); }
+    el("price-hint").textContent = parts.join(" ");
+  }
+
+  function human(value) {
+    if (value >= 1e9) { return toFaDigits((value / 1e9).toFixed(2).replace(/\.?0+$/, "")) + " میلیارد تومان"; }
+    if (value >= 1e6) { return toFaDigits(Math.round(value / 1e6)) + " میلیون تومان"; }
+    return toFaDigits(value) + " تومان";
+  }
+
+  function fail(message) {
+    el("error").textContent = message;
+    if (tg && tg.HapticFeedback) { tg.HapticFeedback.notificationOccurred("error"); }
+  }
+
+  function submit() {
+    el("error").textContent = "";
+
+    var cityName = el("city").value.trim();
+    var city = catalog.cities.filter(function (c) { return c.name === cityName; })[0];
+    if (!city) { return fail("لطفاً یک شهر معتبر از فهرست انتخاب کنید."); }
+
+    var minYear = num(el("min_year").value);
+    var maxYear = num(el("max_year").value);
+    if ((minYear && (minYear < 1300 || minYear > 1500)) ||
+        (maxYear && (maxYear < 1300 || maxYear > 1500))) {
+      return fail("سال تولید باید بین ۱۳۰۰ تا ۱۵۰۰ شمسی باشد.");
+    }
+
+    // The model is more specific than the brand, so it wins when both are set.
+    var modelField = el("model-field");
+    var brand = (!modelField.hidden && el("model").value) ? el("model").value : el("brand").value;
+
+    var payload = {
+      city_id: city.id,
+      name: el("name").value.trim() || ((brand ? brandTitle(brand) : "همه") + " " + city.name),
+      brand: brand || null,
+      min_price: num(el("min_price").value),
+      max_price: num(el("max_price").value),
+      min_year: minYear,
+      max_year: maxYear,
+      max_mileage: num(el("max_mileage").value),
+      gearbox: chipValue(el("gearbox")) || null,
+      seller_type: chipValue(el("seller")) || null,
+      include_kw: splitWords(el("include").value),
+      exclude_kw: splitWords(el("exclude").value),
+      max_age_days: parseInt(el("days").value, 10) || 3,
+      change_alerts: chipValue(el("alerts")) || "price_drop"
+    };
+    if (editingId) { payload.id = parseInt(toEnDigits(editingId), 10); }
+
+    if (!tg) { return fail("این صفحه باید از داخل تلگرام باز شود."); }
+
+    el("save").disabled = true;
+    tg.sendData(JSON.stringify(payload));
+    tg.close();
+  }
+
+  function brandTitle(key) {
+    var found = "";
+    catalog.brands.forEach(function (b) {
+      if (b.key === key) { found = b.title; }
+      (b.children || []).forEach(function (m) { if (m.key === key) { found = m.title; } });
+    });
+    return found || key;
+  }
+
+  function splitWords(value) {
+    return value.split(/[,،]/)
+      .map(function (w) { return w.trim(); })
+      .filter(Boolean)
+      .slice(0, 10);
+  }
+
+  fetch("catalog.json", { cache: "no-cache" })
+    .then(function (r) {
+      if (!r.ok) { throw new Error("catalog " + r.status); }
+      return r.json();
+    })
+    .then(function (data) { catalog = data; buildForm(); })
+    .catch(function (err) {
+      el("app").textContent = "بارگذاری فهرست شهرها و برندها ناموفق بود: " + err.message;
+    });
+})();
+</script>
+</body>
+</html>
